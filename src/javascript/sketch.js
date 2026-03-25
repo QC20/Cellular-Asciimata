@@ -1,94 +1,66 @@
+
 /**
  * Cellular ASCIImata - by humanbydefinition
- * Created for the #WCCChallenge - Theme: "Pattern"
+ * Created for the #WCCChallenge - Theme: "Pattern" 👘
+ * 
+ * Hello Raph and the whole Birb's Nest community! 🐦
+ * I'm experimenting with cellular automata for a bit now and with the theme being "Pattern" this week, 
+ * I thought it would be a great opportunity to finally create my first entry for the #WCCChallenge.
+ * 
+ * This interactive sketch features a cellular automaton that is being rendered on a 1024x1024 canvas, 
+ * which is then further processed before it's ready to be parsed by p5.asciify, a p5.js add-on library I've been working on.
+ * 
+ * The cellular automaton shader is based on a submission on shadertoy by 'laserbat': https://www.shadertoy.com/view/dttyRX
+ * My implementation is a bit different, featuring a slightly modified von Neumann neighborhood and a few other tweaks.
+ * https://en.wikipedia.org/wiki/Von_Neumann_neighborhood
+ * 
+ * For starters, each pixel in the cellular automaton is assigned a random value between 0 and 1 based on a noise function.
+ * Each pixel in the cellular automaton is updated each frame based on the values of its neighbors from the previous frame.
+ * Those values are stored in an array for each pixel and sorted using an insertion sort algorithm.
+ * The first and last values of the sorted array are then used to determine the final array index to pick the new rgb values for the pixel.
+ * 
+ * KEYBOARD+MOUSE CONTROLS:
+ * - WASD: Move the view
+ * - Mouse drag: Move the view
+ * - Space: Pause or unpause
+ * - r: Reset the sketch (resets with cellular automaton with a new seed, color palette, character set and position)
+ * - k: Cycle through kaleidoscope segments (off, 1, 2, 4, 8)
+ * - i: Invert characters (swaps the ascii character color with it's cell background color)
+ * - b: Cycle through background colors (black, white)
+ * - c: Cycle through character color modes (brightness, fixed [white])
+ * - +: Increase font size (8, 16, 32, 64, 128)
+ * - -: Decrease font size (8, 16, 32, 64, 128)
  *
- * Enhanced with:
- *  - Cross-platform fullscreen (macOS, Windows, iOS, Android)
- *  - Momentum-based panning for organic scrolling feel
- *  - macOS trackpad: two-finger scroll panning + pinch-to-zoom
- *  - Windows: mouse wheel panning + Ctrl+wheel zoom
- *  - Mobile: swipe with inertia + pinch-to-zoom font cycling
- *  - iOS Safari and Chrome optimizations
- *  - Android Chrome and Firefox optimizations
- *
- * KEYBOARD CONTROLS:
- *  WASD        Move through the automaton space
- *  Space       Pause / unpause evolution
- *  R           Reset with new seeds and parameters
- *  F           Toggle fullscreen
- *  K           Cycle kaleidoscope segments (off, 1, 2, 4, 8)
- *  I           Toggle character inversion
- *  B           Switch background color
- *  C           Cycle character color modes
- *  + / -       Adjust font size
- *
- * MOUSE / TRACKPAD:
- *  Click+drag          Pan the viewport
- *  Scroll (wheel)      Pan the viewport
- *  Ctrl+scroll         Zoom (cycle font sizes)
- *  Pinch (trackpad)    Zoom (cycle font sizes)
- *
- * TOUCH (phones and tablets):
- *  Swipe               Pan with momentum
- *  Pinch               Zoom (cycle font sizes)
- *  Double-tap           Cycle font sizes
+ * TOUCH CONTROLS:
+ * - Swipe around to move the view
+ * - Double tap to cycle through the pre-defined font sizes
+ * 
+ * The provided kaleidoscope and color palette effects are also part of p5.asciify.
+ * p5.asciify is open-source and available on GitHub: https://github.com/humanbydefinition/p5.asciify 
+ * 
+ * I hope you like this infinite pattern generator and it runs smoothly on your machine! 🌀
+ * 
+ * 
+ * See other submissions for the #WCCChallenge here: https://openprocessing.org/curation/78544
+ * Join the Birb's Nest community on Discord: https://discord.gg/S8c7qcjw2blet
  */
 
-// ─── Platform detection ────────────────────────────────────────────
-const IS_IOS = /iPad|iPhone|iPod/.test(navigator.userAgent) ||
-    (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
-const IS_ANDROID = /Android/.test(navigator.userAgent);
-const IS_MOBILE = IS_IOS || IS_ANDROID;
-const IS_MACOS = /Mac/.test(navigator.platform) && !IS_IOS;
-
-// ─── View and navigation state ─────────────────────────────────────
 let offsetX = 0;
 let offsetY = 0;
-
-// Smooth interpolated offset for organic feel
-let targetOffsetX = 0;
-let targetOffsetY = 0;
-const LERP_FACTOR = 0.25; // How quickly the view catches up to the target
-
-// Momentum state for panning
-let velocityX = 0;
-let velocityY = 0;
-const FRICTION = 0.92;            // Momentum decay per frame
-const MIN_VELOCITY = 0.05;        // Below this threshold, stop
-const VELOCITY_SCALE = 0.6;       // Scale velocity from drag deltas
-
-// Mouse drag state
 let prevMouseX = 0;
 let prevMouseY = 0;
-let isDragging = false;
-let dragDeltaX = 0;
-let dragDeltaY = 0;
-
-// Touch state
 let touchStartX = 0;
 let touchStartY = 0;
 let lastTapTime = 0;
-const DOUBLE_TAP_DELAY = 300;
+const doubleTapDelay = 300; // milliseconds
 let isTouching = false;
-let touchDeltaX = 0;
-let touchDeltaY = 0;
-
-// Pinch-to-zoom state
-let initialPinchDist = 0;
-let isPinching = false;
-const PINCH_THRESHOLD = 50; // Pixel distance change to trigger a zoom step
-
-// Wheel zoom accumulator (for trackpad pinch and Ctrl+scroll)
-let zoomAccumulator = 0;
-
-// Simulation state
+let isDragging = false;
 let isPaused = false;
 
-// ─── Display settings ──────────────────────────────────────────────
 let fontSizes = [8, 16, 32, 64, 128];
-let selectedFontSize = IS_MOBILE ? 16 : 8;
+let selectedFontSize = 8;
 
-// "1BIT MONITOR GLOW" by "Polyducks"
+// "1BIT MONITOR GLOW" by "Polyducks" -> https://lospec.com/palette-list/1bit-monitor-glow
 let backgroundColors = ["#222323", "#f0f6f0"];
 let selectedBackgroundColor = backgroundColors[0];
 
@@ -102,22 +74,22 @@ let caCanvasWidth = 1024;
 let caCanvasHeight = 1024;
 
 let charsets = [
-    "\u00C6\u00AB\u00EE\u2561\u03A3\u03A9\u00E6\u03B4\u03C3\u2510\u00EC\u00BB\u00C9",
-    "\u203C\u2568\u221E\u03C6\u00B2\u207F\u03C4\u00BF\u00E6",
-    "\u2568\u25D8\u2592\u2593\u00DC\u00D6\u00EB\u00E8\u255C\u255D\u00BC\u00A1",
-    " .:,'-^*+?!|=0#X%WM@",
-    " .:-=+*#%@",
-    "$@B%8&WM#*oahkbdpqwmZO0QLCJUYXzcvunxrjft/\\|()1{}[]?-_+~<>i!lI;:,\"^`'. "
-];
+    "Æ«î╛ΣΩæδσ┐ì»É",
+    "‼╨∞φ²ⁿτ¿æ",
+    "╨◘▒▓ÜÖëè╜╝¼¡",
+    " .:,'-^*+?!|=0#X%WM@", // https://polar.sh/emilwidlund/posts/the-secrets-behind-rendering-anything-as-ascii
+    " .:-=+*#%@", // https://paulbourke.net/dataformats/asciiart/
+    "$@B%8&WM#*oahkbdpqwmZO0QLCJUYXzcvunxrjft/\|()1{}[]?-_+~<>i!lI;:,\"^`'. " // https://paulbourke.net/dataformats/asciiart/
+]
 
 let colorPalettes = [
-    [ // "ST 24" by "Skiller Thomson"
+    [ // "ST 24" by "Skiller Thomson" -> https://lospec.com/palette-list/st-24
         "#111126", "#141433", "#17174d", "#281d73", "#3e2680", "#6c29a6",
         "#8136b3", "#ba41d9", "#de73e5", "#ed9df2", "#e9c2f2", "#ffffff",
         "#dae7f2", "#9de7f2", "#73c7e5", "#4192d9", "#3670b3", "#295ba6",
         "#23468c", "#1d2873", "#2953a6", "#3663b3", "#417ed9", "#73a8e5"
     ],
-    [ // "MULFOK32" by "mulfok"
+    [ // "MULFOK32" by "mulfok" -> https://lospec.com/palette-list/mulfok32
         "#5ba675", "#6bc96c", "#abdd64", "#fcef8d", "#ffb879", "#ea6262",
         "#cc425e", "#a32858", "#751756", "#390947", "#611851", "#873555",
         "#a6555f", "#c97373", "#f2ae99", "#ffc3f2", "#ee8fcb", "#d46eb3",
@@ -125,7 +97,7 @@ let colorPalettes = [
         "#ffffff", "#aee2ff", "#8db7ff", "#6d80fa", "#8465ec", "#834dc4",
         "#7d2da0", "#4e187c"
     ],
-    [ // "CC-29" by "Alpha6"
+    [ // "CC-29" by "Alpha6" -> https://lospec.com/palette-list/cc-29
         "#f2f0e5", "#b8b5b9", "#868188", "#646365", "#45444f", "#3a3858",
         "#212123", "#352b42", "#43436a", "#4b80ca", "#68c2d3", "#a2dcc7",
         "#ede19e", "#d3a068", "#b45252", "#6a536e", "#4b4158", "#80493a",
@@ -142,7 +114,6 @@ let seed;
 
 let previousFramebuffer;
 let nextFramebuffer;
-let rotationFramebuffer;
 let gridFramebuffer;
 let zoomFramebuffer;
 
@@ -150,71 +121,6 @@ let grid;
 
 let kaleidoscopeEffect;
 let colorPaletteEffect;
-
-// ─── Fullscreen helpers ────────────────────────────────────────────
-
-function isFullscreen() {
-    return !!(document.fullscreenElement ||
-        document.webkitFullscreenElement ||
-        document.mozFullScreenElement ||
-        document.msFullscreenElement);
-}
-
-function enterFullscreen() {
-    let el = document.documentElement;
-    if (el.requestFullscreen) el.requestFullscreen();
-    else if (el.webkitRequestFullscreen) el.webkitRequestFullscreen();
-    else if (el.mozRequestFullScreen) el.mozRequestFullScreen();
-    else if (el.msRequestFullscreen) el.msRequestFullscreen();
-}
-
-function exitFullscreen() {
-    if (document.exitFullscreen) document.exitFullscreen();
-    else if (document.webkitExitFullscreen) document.webkitExitFullscreen();
-    else if (document.mozCancelFullScreen) document.mozCancelFullScreen();
-    else if (document.msExitFullscreen) document.msExitFullscreen();
-}
-
-function toggleFullscreen() {
-    if (isFullscreen()) {
-        exitFullscreen();
-    } else {
-        enterFullscreen();
-    }
-}
-
-function handleFullscreenChange() {
-    // Give the browser a moment to settle the new dimensions
-    setTimeout(() => {
-        resizeCanvas(windowWidth, windowHeight);
-        if (grid) {
-            gridFramebuffer.resize(grid.cols, grid.rows);
-            // Clamp offsets to new grid dimensions
-            targetOffsetX = constrain(targetOffsetX, 0, caCanvasWidth - grid.cols);
-            targetOffsetY = constrain(targetOffsetY, 0, caCanvasHeight - grid.rows);
-            offsetX = targetOffsetX;
-            offsetY = targetOffsetY;
-        }
-    }, 100);
-}
-
-// ─── Touch utility ─────────────────────────────────────────────────
-
-function pinchDistance(t1, t2) {
-    let dx = t1.x - t2.x;
-    let dy = t1.y - t2.y;
-    return Math.sqrt(dx * dx + dy * dy);
-}
-
-// ─── Offset clamping utility ───────────────────────────────────────
-
-function clampTarget() {
-    if (!grid) return;
-    targetOffsetX = constrain(targetOffsetX, 0, caCanvasWidth - grid.cols);
-    targetOffsetY = constrain(targetOffsetY, 0, caCanvasHeight - grid.rows);
-}
-
-// ─── p5 lifecycle ──────────────────────────────────────────────────
 
 function preload() {
     caShader = createShader(VERT_SHADER, CA_FRAG_SHADER);
@@ -227,12 +133,17 @@ function setup() {
 
     frameRate(60);
     pixelDensity(1);
+    //randomSeed(0); // Uncomment to get the same results each time for a given seed (only works when clicking the reload button above)
 
     createCanvas(windowWidth, windowHeight, WEBGL);
 
-    // Sort palettes by brightness
+    // Sort colors in each palette by brightness
     colorPalettes.forEach(palette => {
-        palette.sort((a, b) => brightness(color(a)) - brightness(color(b)));
+        palette.sort((a, b) => {
+            let colorA = color(a);
+            let colorB = color(b);
+            return brightness(colorA) - brightness(colorB);
+        });
     });
 
     seed = random(0, 100);
@@ -240,15 +151,17 @@ function setup() {
     previousFramebuffer = createFramebuffer({ format: FLOAT, width: caCanvasWidth, height: caCanvasHeight });
     nextFramebuffer = createFramebuffer({ format: FLOAT, width: caCanvasWidth, height: caCanvasHeight });
     rotationFramebuffer = createFramebuffer({ format: FLOAT, width: caCanvasWidth, height: caCanvasHeight });
-    gridFramebuffer = createFramebuffer({ format: FLOAT, width: 1, height: 1 });
+    gridFramebuffer = createFramebuffer({ format: FLOAT, width: 1, height: 1 }); // Gets resized in draw at frame 1
     zoomFramebuffer = createFramebuffer({ format: FLOAT });
 
-    grid = P5Asciify.grid;
+    grid = P5Asciify.grid; // Get the grid object from p5.asciify for measurements
 
     setAsciiOptions({
-        common: { fontSize: selectedFontSize },
+        common: {
+            fontSize: selectedFontSize,
+        },
         brightness: {
-            enabled: true,
+            enabled: true, // Set to false to disable ascii conversion
             characterColorMode: characterColorMode,
             characterColor: backgroundColors[1],
             characters: charsets[Math.floor(random() * charsets.length)],
@@ -259,104 +172,24 @@ function setup() {
 
     let randomPalette = colorPalettes[Math.floor(random() * colorPalettes.length)];
     colorPaletteEffect = addAsciiEffect("pre", "colorpalette", { palette: randomPalette });
+    //colorPaletteEffect.enabled = false; // Uncomment to disable color palette effect to get a grayscale output
 
     kaleidoscopeEffect = addAsciiEffect("pre", "kaleidoscope", { segments: 1, angle: 0 });
     kaleidoscopeEffect.enabled = false;
-
-    // ── Register event listeners ──
-
-    let canvasEl = document.querySelector('canvas');
-
-    // Wheel: trackpad two-finger scroll (macOS), mouse wheel (Windows), pinch-to-zoom
-    canvasEl.addEventListener('wheel', handleWheel, { passive: false });
-
-    // Fullscreen change events (all browser prefixes)
-    document.addEventListener('fullscreenchange', handleFullscreenChange);
-    document.addEventListener('webkitfullscreenchange', handleFullscreenChange);
-    document.addEventListener('mozfullscreenchange', handleFullscreenChange);
-    document.addEventListener('MSFullscreenChange', handleFullscreenChange);
-
-    // Prevent iOS Safari overscroll and bounce on the entire document
-    document.addEventListener('touchmove', preventOverscroll, { passive: false });
-
-    // Prevent double-tap-to-zoom on iOS Safari
-    document.addEventListener('dblclick', function (e) { e.preventDefault(); }, { passive: false });
-
-    // Context menu blocks long-press on mobile
-    canvasEl.addEventListener('contextmenu', function (e) { e.preventDefault(); });
-
-    // Prevent iOS 10+ pinch-to-zoom on the page itself (we handle it ourselves)
-    document.addEventListener('gesturestart', function (e) { e.preventDefault(); }, { passive: false });
-    document.addEventListener('gesturechange', function (e) { e.preventDefault(); }, { passive: false });
-    document.addEventListener('gestureend', function (e) { e.preventDefault(); }, { passive: false });
-}
-
-function preventOverscroll(e) {
-    // Only prevent if touch is on the canvas, so we don't break other page elements
-    if (e.target.tagName === 'CANVAS') {
-        e.preventDefault();
-    }
-}
-
-function handleWheel(e) {
-    e.preventDefault();
-
-    if (e.ctrlKey) {
-        // Pinch-to-zoom on macOS trackpad, or Ctrl+scroll on Windows
-        zoomAccumulator += e.deltaY;
-        if (Math.abs(zoomAccumulator) >= 50) {
-            cycleFontSize(zoomAccumulator < 0 ? 1 : -1);
-            zoomAccumulator = 0;
-        }
-    } else {
-        // Pan. Scale factor depends on input device:
-        // deltaMode 0 = pixels (trackpad), deltaMode 1 = lines (mouse wheel click)
-        let scale = e.deltaMode === 0 ? 0.15 : 3;
-
-        // On macOS trackpad, both axes are meaningful.
-        // On Windows mouse wheel, deltaY dominates.
-        targetOffsetX += e.deltaX * scale;
-        targetOffsetY += e.deltaY * scale;
-        clampTarget();
-
-        // Kill any residual momentum so the wheel input feels direct
-        velocityX = 0;
-        velocityY = 0;
-    }
 }
 
 function draw() {
-    if (frameCount === 1) {
+    if (frameCount === 1) { // p5.asciify grid is initialized after setup, so we need to resize the framebuffer here
         gridFramebuffer.resize(grid.cols, grid.rows);
-        targetOffsetX = floor(random(0, caCanvasWidth - grid.cols));
-        targetOffsetY = floor(random(0, caCanvasHeight - grid.rows));
-        offsetX = targetOffsetX;
-        offsetY = targetOffsetY;
+        offsetX = floor(random(0, caCanvasWidth - grid.cols));
+        offsetY = floor(random(0, caCanvasHeight - grid.rows));
     }
 
-    // ── Apply momentum ──
-    if (!isDragging && !isTouching) {
-        if (Math.abs(velocityX) > MIN_VELOCITY || Math.abs(velocityY) > MIN_VELOCITY) {
-            targetOffsetX -= velocityX;
-            targetOffsetY -= velocityY;
-            clampTarget();
-            velocityX *= FRICTION;
-            velocityY *= FRICTION;
-        } else {
-            velocityX = 0;
-            velocityY = 0;
-        }
-    }
-
-    // ── Smooth interpolation toward target ──
-    offsetX = lerp(offsetX, targetOffsetX, LERP_FACTOR);
-    offsetY = lerp(offsetY, targetOffsetY, LERP_FACTOR);
-
-    // ── Cellular automaton step ──
     if (!isPaused) {
+        // Cycle the framebuffers
         [previousFramebuffer, nextFramebuffer] = [nextFramebuffer, previousFramebuffer];
 
-        nextFramebuffer.begin();
+        nextFramebuffer.begin(); // Render the next iteration of the cellular automata
         shader(caShader);
         caShader.setUniform('u_resolution', [caCanvasWidth, caCanvasHeight]);
         caShader.setUniform('u_frameCount', frameCount);
@@ -366,16 +199,14 @@ function draw() {
         nextFramebuffer.end();
     }
 
-    // ── Viewport extraction ──
-    gridFramebuffer.begin();
+    gridFramebuffer.begin(); // Render a chunk of the cellular automata equal to the ascii grid size based on the offset
     shader(gridShader);
     gridShader.setUniform('u_inputTexture', nextFramebuffer);
-    gridShader.setUniform('u_offset', [Math.round(offsetX), Math.round(offsetY)]);
+    gridShader.setUniform('u_offset', [offsetX, offsetY]);
     rect(0, 0, grid.cols, grid.rows);
     gridFramebuffer.end();
 
-    // ── Zoom to screen ──
-    zoomFramebuffer.begin();
+    zoomFramebuffer.begin(); // Render the zoomed in view of the grid
     shader(zoomShader);
     zoomShader.setUniform('u_resolution', [windowWidth, windowHeight]);
     zoomShader.setUniform('u_gridDimensions', [grid.cols, grid.rows]);
@@ -383,35 +214,32 @@ function draw() {
     rect(0, 0, windowWidth, windowHeight);
     zoomFramebuffer.end();
 
-    image(zoomFramebuffer, -windowWidth / 2, -windowHeight / 2);
+    image(zoomFramebuffer, -windowWidth / 2, -windowHeight / 2); // Display the zoomed in view, which is picked up by p5.asciify
 
-    // ── Keyboard continuous movement ──
-    let moveSpeed = IS_MOBILE ? 2 : 1;
-    if (keyIsDown(87)) targetOffsetY = max(0, targetOffsetY - moveSpeed); // W
-    if (keyIsDown(83)) targetOffsetY = min(caCanvasHeight - grid.rows, targetOffsetY + moveSpeed); // S
-    if (keyIsDown(65)) targetOffsetX = max(0, targetOffsetX - moveSpeed); // A
-    if (keyIsDown(68)) targetOffsetX = min(caCanvasWidth - grid.cols, targetOffsetX + moveSpeed); // D
+    if (keyIsDown(87)) { // 'w' key
+        offsetY = max(0, offsetY - 1);
+    }
+
+    if (keyIsDown(83)) { // 's' key
+        offsetY = min(caCanvasHeight - (grid.rows), offsetY + 1);
+    }
+
+    if (keyIsDown(65)) { // 'a' key
+        offsetX = max(0, offsetX - 1);
+    }
+
+    if (keyIsDown(68)) { // 'd' key
+        offsetX = min(caCanvasWidth - (grid.cols), offsetX + 1);
+    }
 }
-
-// ─── Mouse interaction ─────────────────────────────────────────────
 
 function mousePressed() {
     isDragging = true;
     prevMouseX = mouseX;
     prevMouseY = mouseY;
-    dragDeltaX = 0;
-    dragDeltaY = 0;
-    // Kill momentum when user grabs the viewport
-    velocityX = 0;
-    velocityY = 0;
 }
 
 function mouseReleased() {
-    if (isDragging) {
-        // Launch momentum from the last drag delta
-        velocityX = dragDeltaX * VELOCITY_SCALE;
-        velocityY = dragDeltaY * VELOCITY_SCALE;
-    }
     isDragging = false;
 }
 
@@ -420,125 +248,69 @@ function mouseDragged() {
         let dx = mouseX - prevMouseX;
         let dy = mouseY - prevMouseY;
 
-        targetOffsetX -= dx;
-        targetOffsetY -= dy;
-        clampTarget();
-
-        // Track the most recent drag delta for momentum launch
-        dragDeltaX = dx;
-        dragDeltaY = dy;
+        // Update offset with boundary checks
+        offsetX = constrain(offsetX + dx, 0, caCanvasWidth - grid.cols);
+        offsetY = constrain(offsetY + dy, 0, caCanvasHeight - grid.rows);
 
         prevMouseX = mouseX;
         prevMouseY = mouseY;
     }
-    return false;
 }
 
-// ─── Touch interaction ─────────────────────────────────────────────
-
 function touchStarted() {
-    if (touches.length === 2) {
-        // Start pinch gesture
-        isPinching = true;
-        isTouching = false;
-        initialPinchDist = pinchDistance(touches[0], touches[1]);
-        velocityX = 0;
-        velocityY = 0;
-        return false;
-    }
-
-    // Single touch: check for double-tap
-    let currentTime = millis();
-    if (currentTime - lastTapTime < DOUBLE_TAP_DELAY) {
-        cycleFontSize(1);
-        lastTapTime = 0;
-        return false;
-    }
-
+  let currentTime = millis();
+  if (currentTime - lastTapTime < doubleTapDelay) {
+    // Double tap detected
+    cycleFontSize();
+    lastTapTime = 0; // Reset to prevent triple-tap
+  } else {
+    // Single tap (start of potential drag)
     isTouching = true;
     touchStartX = touches[0].x;
     touchStartY = touches[0].y;
-    touchDeltaX = 0;
-    touchDeltaY = 0;
     lastTapTime = currentTime;
-
-    // Kill momentum on new touch
-    velocityX = 0;
-    velocityY = 0;
-
-    return false;
+  }
 }
 
 function touchMoved() {
-    if (isPinching && touches.length >= 2) {
-        let currentDist = pinchDistance(touches[0], touches[1]);
-        let diff = currentDist - initialPinchDist;
-        if (Math.abs(diff) > PINCH_THRESHOLD) {
-            cycleFontSize(diff > 0 ? 1 : -1);
-            initialPinchDist = currentDist;
-        }
-        return false;
-    }
+  if (isTouching) {
+    let dx = touches[0].x - touchStartX;
+    let dy = touches[0].y - touchStartY;
 
-    if (isTouching && touches.length === 1) {
-        let dx = touches[0].x - touchStartX;
-        let dy = touches[0].y - touchStartY;
+    // Update offset with boundary checks
+    offsetX = constrain(offsetX - dx, 0, caCanvasWidth - grid.cols);
+    offsetY = constrain(offsetY - dy, 0, caCanvasHeight - grid.rows);
 
-        targetOffsetX -= dx;
-        targetOffsetY -= dy;
-        clampTarget();
-
-        // Store delta for momentum
-        touchDeltaX = dx;
-        touchDeltaY = dy;
-
-        touchStartX = touches[0].x;
-        touchStartY = touches[0].y;
-    }
-    return false;
+    touchStartX = touches[0].x;
+    touchStartY = touches[0].y;
+  }
 }
 
 function touchEnded() {
-    if (isPinching) {
-        // End pinch when fewer than 2 fingers remain
-        if (touches.length < 2) {
-            isPinching = false;
-        }
-        return false;
-    }
-
-    if (isTouching) {
-        // Launch momentum from final swipe delta
-        velocityX = touchDeltaX * VELOCITY_SCALE;
-        velocityY = touchDeltaY * VELOCITY_SCALE;
-        isTouching = false;
-    }
-    return false;
+  isTouching = false;
 }
 
-// ─── Keyboard interaction ──────────────────────────────────────────
-
 function keyPressed() {
-    if (key === "+") cycleFontSize(1);
-    if (key === "-") cycleFontSize(-1);
+    if (key === "+") {
+    		cycleFontSize(1);
+  	}
 
-    if (key === "f" || key === "F") toggleFullscreen();
+  	if (key === "-") {
+    		cycleFontSize(-1);  
+  	}
 
-    if (key === " ") {
+    if (key === " ") { // Pause or unpause
         isPaused = !isPaused;
-        return false; // Prevent page scroll on space
     }
 
     if (key === "r") {
+
         frameCount = 1;
+
         seed = random(0, 100);
 
-        targetOffsetX = floor(random(0, caCanvasWidth - grid.cols));
-        targetOffsetY = floor(random(0, caCanvasHeight - grid.rows));
-        offsetX = targetOffsetX;
-        offsetY = targetOffsetY;
-        velocityX = 0;
-        velocityY = 0;
+        offsetX = floor(random(0, caCanvasWidth - grid.cols));
+        offsetY = floor(random(0, caCanvasHeight - grid.rows));
 
         previousFramebuffer.begin();
         clear();
@@ -558,8 +330,8 @@ function keyPressed() {
         colorPaletteEffect.palette = randomPalette;
     }
 
-    if (key === "k") {
-        if (!kaleidoscopeEffect.enabled) {
+    if (key === "k") { // Cycle through kaleidoscope segments
+        if (kaleidoscopeEffect.enabled === false) {
             kaleidoscopeEffect.enabled = true;
             kaleidoscopeEffect.segments = availableKaleidoscopeSegments[0];
         } else {
@@ -567,47 +339,203 @@ function keyPressed() {
             if (index === availableKaleidoscopeSegments.length - 1) {
                 kaleidoscopeEffect.enabled = false;
             } else {
-                kaleidoscopeEffect.segments = availableKaleidoscopeSegments[(index + 1) % availableKaleidoscopeSegments.length];
+                index = (index + 1) % availableKaleidoscopeSegments.length;
+                kaleidoscopeEffect.segments = availableKaleidoscopeSegments[index];
             }
         }
     }
 
-    if (key === "i") {
+    if (key === "i") { // Invert characters
         invertCharacters = !invertCharacters;
-        setAsciiOptions({ brightness: { invertMode: invertCharacters } });
+
+        setAsciiOptions({
+            brightness: {
+                invertMode: invertCharacters,
+            },
+        });
     }
 
-    if (key === "b") {
-        let index = (backgroundColors.indexOf(selectedBackgroundColor) + 1) % backgroundColors.length;
+    if (key === "b") { // Cycle through background colors
+        let index = backgroundColors.indexOf(selectedBackgroundColor);
+        index = (index + 1) % backgroundColors.length;
         selectedBackgroundColor = backgroundColors[index];
-        setAsciiOptions({ brightness: { backgroundColor: selectedBackgroundColor } });
+
+        setAsciiOptions({
+            brightness: {
+                backgroundColor: selectedBackgroundColor,
+            },
+        });
     }
 
-    if (key === "c") {
+    if (key === "c") { // Cycle through character color modes
         characterColorMode = characterColorMode === 0 ? 1 : 0;
-        setAsciiOptions({ brightness: { characterColorMode: characterColorMode } });
+
+        setAsciiOptions({
+            brightness: {
+                characterColorMode: characterColorMode,
+            },
+        });
     }
 }
-
-// ─── Window resize ─────────────────────────────────────────────────
 
 function windowResized() {
     resizeCanvas(windowWidth, windowHeight);
-    if (grid) {
-        gridFramebuffer.resize(grid.cols, grid.rows);
-        clampTarget();
-    }
+    gridFramebuffer.resize(grid.cols, grid.rows);
 }
-
-// ─── Font size cycling ─────────────────────────────────────────────
 
 function cycleFontSize(direction = 1) {
-    let index = fontSizes.indexOf(selectedFontSize);
-    index = (index + direction + fontSizes.length) % fontSizes.length;
-    selectedFontSize = fontSizes[index];
-    setAsciiOptions({ common: { fontSize: selectedFontSize } });
-    if (grid) {
-        gridFramebuffer.resize(grid.cols, grid.rows);
-        clampTarget();
-    }
+  let index = fontSizes.indexOf(selectedFontSize);
+  index = (index + direction + fontSizes.length) % fontSizes.length;
+  selectedFontSize = fontSizes[index];
+  setAsciiOptions({
+    common: {
+      fontSize: selectedFontSize,
+    },
+  });
+  gridFramebuffer.resize(grid.cols, grid.rows);
 }
+
+const VERT_SHADER = `   #version 300 es
+
+                        precision mediump float;
+
+                        layout(location = 0) in vec3 aPosition;
+                        layout(location = 1) in vec2 aTexCoord; // Add attribute for texture coordinates
+
+                        out vec2 v_texCoord; // Varying to pass the texture coordinate to the fragment shader
+
+                        void main() {
+                            vec4 positionVec4 = vec4(aPosition, 1.0);
+                            positionVec4.xy = positionVec4.xy * 2.0 - 1.0;
+
+                            gl_Position = positionVec4;
+
+                            v_texCoord = aTexCoord; // Pass the texture coordinate to the fragment shader
+                        }`;
+
+const CA_FRAG_SHADER = `#version 300 es
+												precision highp float;
+												precision highp int;
+
+												out vec4 fragColor;
+												uniform sampler2D u_previousIterationTexture;
+												uniform vec2 u_resolution;
+												uniform int u_frameCount;
+												uniform float u_seed;
+
+												// Fetch value from texture
+												float GET(vec2 coord, ivec2 offset) {
+														return texelFetch(u_previousIterationTexture, ivec2(mod(coord + vec2(offset) + u_resolution.xy, u_resolution.xy)), 0).r;
+												}
+
+												// Number of neighbors for each cell
+												const int NEIGHBOR_COUNT = 6;
+
+												// Hash function
+												int hash(int x) {
+														x += (x << 10u);
+														x ^= (x >> 6u);
+														x += (x << 3u);
+														x ^= (x >> 11u);
+														x += (x << 15u);
+														return x;
+												}
+
+												// Simple noise function
+												float noise(in vec2 co) {
+														int x = int(co.x * u_resolution.x);
+														int y = int(co.y * u_resolution.y);
+														int z = int(u_seed);
+														int w = int(fract(float(1)) * u_resolution.x);
+														int res = hash(x + hash(y + hash(z + hash(w))));
+
+														return mod(float(res), u_resolution.x) / u_resolution.x;
+												}
+
+												void getNeighbors(vec2 fragCoord, out float vals[6]) {
+														// Von Neumann neighborhood (4 neighbors + center)
+														ivec2 offsets[5] = ivec2[](ivec2(0, 0), ivec2(-1, 0), ivec2(1, 0), ivec2(0, -1), ivec2(0, 1));
+														for(int i = 0; i < 5; i++) {
+																vals[i] = GET(fragCoord, offsets[i]);
+														}
+														vals[5] = GET(fragCoord, ivec2(0, 0)); // Added an additional center value, so persistent structures more likely emerge
+												}
+
+												void insertionSort(inout float vals[6], int n) {
+														for (int i = 1; i < n; i++) {
+																float key = vals[i];
+																int j = i - 1;
+
+																while (j >= 0 && vals[j] > key) {
+																		vals[j + 1] = vals[j];
+																		j = j - 1;
+																}
+																vals[j + 1] = key;
+														}
+												}
+
+												void main() {
+														vec2 fragCoord = gl_FragCoord.xy;
+
+														if(u_frameCount == 2) {
+																float val = noise(fragCoord / u_resolution);
+																fragColor = vec4(val, val, val, 1.0f);
+														} else {
+																float vals[NEIGHBOR_COUNT];
+
+																getNeighbors(fragCoord, vals);
+																insertionSort(vals, NEIGHBOR_COUNT);
+
+																int idx = int(float(vals[0] * 256.0f) + float(vals[NEIGHBOR_COUNT - 1] * 256.0f)) % NEIGHBOR_COUNT;
+																fragColor = vec4(vals[idx], vals[idx], vals[idx], 1.0f);
+														}
+												}`
+
+const GRID_FRAG_SHADER = `  #version 300 es
+                            precision highp float;
+
+                            // Uniforms
+                            uniform sampler2D u_inputTexture;
+                            uniform ivec2 u_offset;
+
+                            // Output
+                            out vec4 fragColor;
+
+                            void main() {
+                                // Calculate the texture coordinate to sample the color from
+                                vec2 texCoord = (vec2(gl_FragCoord.xy) + vec2(u_offset)) / vec2(textureSize(u_inputTexture, 0));
+                                
+                                // Sample the color from the input texture
+                                vec4 color = texture(u_inputTexture, texCoord);
+                                
+                                // Output the color to the fragment
+                                fragColor = color;
+                            }`
+
+const ZOOM_FRAG_SHADER = `  #version 300 es
+                            precision highp float;
+
+                            // Uniforms
+                            uniform sampler2D u_inputTexture;
+                            uniform vec2 u_resolution;
+                            uniform ivec2 u_gridDimensions;
+
+                            // Output
+                            out vec4 fragColor;
+
+                            void main() {
+                                // Calculate the size of each cell in the grid
+                                vec2 cellSize = u_resolution / vec2(u_gridDimensions);
+                                
+                                // Calculate which cell we are in
+                                ivec2 cellIndex = ivec2(floor(gl_FragCoord.xy / cellSize));
+                                
+                                // Calculate the texture coordinate to sample the color from
+                                vec2 texCoord = (vec2(cellIndex) + vec2(0.5)) / vec2(u_gridDimensions);
+                                
+                                // Sample the color from the input texture
+                                vec4 color = texture(u_inputTexture, texCoord);
+                                
+                                // Output the color to the fragment
+                                fragColor = color;
+                            }`;
