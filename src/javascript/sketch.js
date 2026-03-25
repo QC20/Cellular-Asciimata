@@ -1,47 +1,94 @@
 /**
  * Cellular ASCIImata - by humanbydefinition
  * Created for the #WCCChallenge - Theme: "Pattern"
- * 
- * This interactive sketch features a cellular automaton that is being rendered on a 1024x1024 canvas,
- * which is then further processed before it's ready to be parsed by p5.asciify, a p5.js add-on library.
- * 
- * The cellular automaton shader is based on a submission on shadertoy by 'laserbat': https://www.shadertoy.com/view/dttyRX
- * Implementation features a slightly modified von Neumann neighborhood and a few other tweaks.
- * https://en.wikipedia.org/wiki/Von_Neumann_neighborhood
- * 
- * KEYBOARD+MOUSE CONTROLS:
- * - WASD: Move the view
- * - Mouse drag: Move the view
- * - Space: Pause or unpause
- * - r: Reset the sketch (resets cellular automaton with a new seed, color palette, character set and position)
- * - k: Cycle through kaleidoscope segments (off, 1, 2, 4, 8)
- * - i: Invert characters (swaps the ascii character color with its cell background color)
- * - b: Cycle through background colors (black, white)
- * - c: Cycle through character color modes (brightness, fixed [white])
- * - +: Increase font size (8, 16, 32, 64, 128)
- * - -: Decrease font size (8, 16, 32, 64, 128)
  *
- * TOUCH CONTROLS:
- * - Swipe around to move the view
- * - Double tap to cycle through the pre-defined font sizes
+ * Enhanced with:
+ *  - Cross-platform fullscreen (macOS, Windows, iOS, Android)
+ *  - Momentum-based panning for organic scrolling feel
+ *  - macOS trackpad: two-finger scroll panning + pinch-to-zoom
+ *  - Windows: mouse wheel panning + Ctrl+wheel zoom
+ *  - Mobile: swipe with inertia + pinch-to-zoom font cycling
+ *  - iOS Safari and Chrome optimizations
+ *  - Android Chrome and Firefox optimizations
+ *
+ * KEYBOARD CONTROLS:
+ *  WASD        Move through the automaton space
+ *  Space       Pause / unpause evolution
+ *  R           Reset with new seeds and parameters
+ *  F           Toggle fullscreen
+ *  K           Cycle kaleidoscope segments (off, 1, 2, 4, 8)
+ *  I           Toggle character inversion
+ *  B           Switch background color
+ *  C           Cycle character color modes
+ *  + / -       Adjust font size
+ *
+ * MOUSE / TRACKPAD:
+ *  Click+drag          Pan the viewport
+ *  Scroll (wheel)      Pan the viewport
+ *  Ctrl+scroll         Zoom (cycle font sizes)
+ *  Pinch (trackpad)    Zoom (cycle font sizes)
+ *
+ * TOUCH (phones and tablets):
+ *  Swipe               Pan with momentum
+ *  Pinch               Zoom (cycle font sizes)
+ *  Double-tap           Cycle font sizes
  */
 
+// ─── Platform detection ────────────────────────────────────────────
+const IS_IOS = /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+    (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+const IS_ANDROID = /Android/.test(navigator.userAgent);
+const IS_MOBILE = IS_IOS || IS_ANDROID;
+const IS_MACOS = /Mac/.test(navigator.platform) && !IS_IOS;
+
+// ─── View and navigation state ─────────────────────────────────────
 let offsetX = 0;
 let offsetY = 0;
+
+// Smooth interpolated offset for organic feel
+let targetOffsetX = 0;
+let targetOffsetY = 0;
+const LERP_FACTOR = 0.25; // How quickly the view catches up to the target
+
+// Momentum state for panning
+let velocityX = 0;
+let velocityY = 0;
+const FRICTION = 0.92;            // Momentum decay per frame
+const MIN_VELOCITY = 0.05;        // Below this threshold, stop
+const VELOCITY_SCALE = 0.6;       // Scale velocity from drag deltas
+
+// Mouse drag state
 let prevMouseX = 0;
 let prevMouseY = 0;
+let isDragging = false;
+let dragDeltaX = 0;
+let dragDeltaY = 0;
+
+// Touch state
 let touchStartX = 0;
 let touchStartY = 0;
 let lastTapTime = 0;
-const doubleTapDelay = 300; // milliseconds
+const DOUBLE_TAP_DELAY = 300;
 let isTouching = false;
-let isDragging = false;
+let touchDeltaX = 0;
+let touchDeltaY = 0;
+
+// Pinch-to-zoom state
+let initialPinchDist = 0;
+let isPinching = false;
+const PINCH_THRESHOLD = 50; // Pixel distance change to trigger a zoom step
+
+// Wheel zoom accumulator (for trackpad pinch and Ctrl+scroll)
+let zoomAccumulator = 0;
+
+// Simulation state
 let isPaused = false;
 
+// ─── Display settings ──────────────────────────────────────────────
 let fontSizes = [8, 16, 32, 64, 128];
-let selectedFontSize = 8;
+let selectedFontSize = IS_MOBILE ? 16 : 8;
 
-// "1BIT MONITOR GLOW" by "Polyducks" -> https://lospec.com/palette-list/1bit-monitor-glow
+// "1BIT MONITOR GLOW" by "Polyducks"
 let backgroundColors = ["#222323", "#f0f6f0"];
 let selectedBackgroundColor = backgroundColors[0];
 
@@ -64,13 +111,13 @@ let charsets = [
 ];
 
 let colorPalettes = [
-    [ // "ST 24" by "Skiller Thomson" -> https://lospec.com/palette-list/st-24
+    [ // "ST 24" by "Skiller Thomson"
         "#111126", "#141433", "#17174d", "#281d73", "#3e2680", "#6c29a6",
         "#8136b3", "#ba41d9", "#de73e5", "#ed9df2", "#e9c2f2", "#ffffff",
         "#dae7f2", "#9de7f2", "#73c7e5", "#4192d9", "#3670b3", "#295ba6",
         "#23468c", "#1d2873", "#2953a6", "#3663b3", "#417ed9", "#73a8e5"
     ],
-    [ // "MULFOK32" by "mulfok" -> https://lospec.com/palette-list/mulfok32
+    [ // "MULFOK32" by "mulfok"
         "#5ba675", "#6bc96c", "#abdd64", "#fcef8d", "#ffb879", "#ea6262",
         "#cc425e", "#a32858", "#751756", "#390947", "#611851", "#873555",
         "#a6555f", "#c97373", "#f2ae99", "#ffc3f2", "#ee8fcb", "#d46eb3",
@@ -78,7 +125,7 @@ let colorPalettes = [
         "#ffffff", "#aee2ff", "#8db7ff", "#6d80fa", "#8465ec", "#834dc4",
         "#7d2da0", "#4e187c"
     ],
-    [ // "CC-29" by "Alpha6" -> https://lospec.com/palette-list/cc-29
+    [ // "CC-29" by "Alpha6"
         "#f2f0e5", "#b8b5b9", "#868188", "#646365", "#45444f", "#3a3858",
         "#212123", "#352b42", "#43436a", "#4b80ca", "#68c2d3", "#a2dcc7",
         "#ede19e", "#d3a068", "#b45252", "#6a536e", "#4b4158", "#80493a",
@@ -90,8 +137,6 @@ let colorPalettes = [
 let caShader;
 let gridShader;
 let zoomShader;
-
-let zoomAccumulator = 0;
 
 let seed;
 
@@ -105,6 +150,71 @@ let grid;
 
 let kaleidoscopeEffect;
 let colorPaletteEffect;
+
+// ─── Fullscreen helpers ────────────────────────────────────────────
+
+function isFullscreen() {
+    return !!(document.fullscreenElement ||
+        document.webkitFullscreenElement ||
+        document.mozFullScreenElement ||
+        document.msFullscreenElement);
+}
+
+function enterFullscreen() {
+    let el = document.documentElement;
+    if (el.requestFullscreen) el.requestFullscreen();
+    else if (el.webkitRequestFullscreen) el.webkitRequestFullscreen();
+    else if (el.mozRequestFullScreen) el.mozRequestFullScreen();
+    else if (el.msRequestFullscreen) el.msRequestFullscreen();
+}
+
+function exitFullscreen() {
+    if (document.exitFullscreen) document.exitFullscreen();
+    else if (document.webkitExitFullscreen) document.webkitExitFullscreen();
+    else if (document.mozCancelFullScreen) document.mozCancelFullScreen();
+    else if (document.msExitFullscreen) document.msExitFullscreen();
+}
+
+function toggleFullscreen() {
+    if (isFullscreen()) {
+        exitFullscreen();
+    } else {
+        enterFullscreen();
+    }
+}
+
+function handleFullscreenChange() {
+    // Give the browser a moment to settle the new dimensions
+    setTimeout(() => {
+        resizeCanvas(windowWidth, windowHeight);
+        if (grid) {
+            gridFramebuffer.resize(grid.cols, grid.rows);
+            // Clamp offsets to new grid dimensions
+            targetOffsetX = constrain(targetOffsetX, 0, caCanvasWidth - grid.cols);
+            targetOffsetY = constrain(targetOffsetY, 0, caCanvasHeight - grid.rows);
+            offsetX = targetOffsetX;
+            offsetY = targetOffsetY;
+        }
+    }, 100);
+}
+
+// ─── Touch utility ─────────────────────────────────────────────────
+
+function pinchDistance(t1, t2) {
+    let dx = t1.x - t2.x;
+    let dy = t1.y - t2.y;
+    return Math.sqrt(dx * dx + dy * dy);
+}
+
+// ─── Offset clamping utility ───────────────────────────────────────
+
+function clampTarget() {
+    if (!grid) return;
+    targetOffsetX = constrain(targetOffsetX, 0, caCanvasWidth - grid.cols);
+    targetOffsetY = constrain(targetOffsetY, 0, caCanvasHeight - grid.rows);
+}
+
+// ─── p5 lifecycle ──────────────────────────────────────────────────
 
 function preload() {
     caShader = createShader(VERT_SHADER, CA_FRAG_SHADER);
@@ -120,13 +230,9 @@ function setup() {
 
     createCanvas(windowWidth, windowHeight, WEBGL);
 
-    // Sort colors in each palette by brightness
+    // Sort palettes by brightness
     colorPalettes.forEach(palette => {
-        palette.sort((a, b) => {
-            let colorA = color(a);
-            let colorB = color(b);
-            return brightness(colorA) - brightness(colorB);
-        });
+        palette.sort((a, b) => brightness(color(a)) - brightness(color(b)));
     });
 
     seed = random(0, 100);
@@ -134,15 +240,13 @@ function setup() {
     previousFramebuffer = createFramebuffer({ format: FLOAT, width: caCanvasWidth, height: caCanvasHeight });
     nextFramebuffer = createFramebuffer({ format: FLOAT, width: caCanvasWidth, height: caCanvasHeight });
     rotationFramebuffer = createFramebuffer({ format: FLOAT, width: caCanvasWidth, height: caCanvasHeight });
-    gridFramebuffer = createFramebuffer({ format: FLOAT, width: 1, height: 1 }); // Gets resized in draw at frame 1
+    gridFramebuffer = createFramebuffer({ format: FLOAT, width: 1, height: 1 });
     zoomFramebuffer = createFramebuffer({ format: FLOAT });
 
-    grid = P5Asciify.grid; // Get the grid object from p5.asciify for measurements
+    grid = P5Asciify.grid;
 
     setAsciiOptions({
-        common: {
-            fontSize: selectedFontSize,
-        },
+        common: { fontSize: selectedFontSize },
         brightness: {
             enabled: true,
             characterColorMode: characterColorMode,
@@ -159,35 +263,97 @@ function setup() {
     kaleidoscopeEffect = addAsciiEffect("pre", "kaleidoscope", { segments: 1, angle: 0 });
     kaleidoscopeEffect.enabled = false;
 
-    // Wheel: two-finger pan (macOS trackpad / Windows scroll) + pinch-to-zoom (macOS) / Ctrl+scroll (Windows)
+    // ── Register event listeners ──
+
     let canvasEl = document.querySelector('canvas');
-    canvasEl.addEventListener('wheel', function (e) {
+
+    // Wheel: trackpad two-finger scroll (macOS), mouse wheel (Windows), pinch-to-zoom
+    canvasEl.addEventListener('wheel', handleWheel, { passive: false });
+
+    // Fullscreen change events (all browser prefixes)
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+    document.addEventListener('webkitfullscreenchange', handleFullscreenChange);
+    document.addEventListener('mozfullscreenchange', handleFullscreenChange);
+    document.addEventListener('MSFullscreenChange', handleFullscreenChange);
+
+    // Prevent iOS Safari overscroll and bounce on the entire document
+    document.addEventListener('touchmove', preventOverscroll, { passive: false });
+
+    // Prevent double-tap-to-zoom on iOS Safari
+    document.addEventListener('dblclick', function (e) { e.preventDefault(); }, { passive: false });
+
+    // Context menu blocks long-press on mobile
+    canvasEl.addEventListener('contextmenu', function (e) { e.preventDefault(); });
+
+    // Prevent iOS 10+ pinch-to-zoom on the page itself (we handle it ourselves)
+    document.addEventListener('gesturestart', function (e) { e.preventDefault(); }, { passive: false });
+    document.addEventListener('gesturechange', function (e) { e.preventDefault(); }, { passive: false });
+    document.addEventListener('gestureend', function (e) { e.preventDefault(); }, { passive: false });
+}
+
+function preventOverscroll(e) {
+    // Only prevent if touch is on the canvas, so we don't break other page elements
+    if (e.target.tagName === 'CANVAS') {
         e.preventDefault();
-        if (e.ctrlKey) {
-            // Pinch-to-zoom (macOS trackpad pinch) or Ctrl+scroll (Windows / macOS)
-            zoomAccumulator += e.deltaY;
-            if (Math.abs(zoomAccumulator) >= 50) {
-                cycleFontSize(zoomAccumulator < 0 ? 1 : -1);
-                zoomAccumulator = 0;
-            }
-        } else {
-            // Pan — scale by delta mode: 0 = pixels (trackpad), 1 = lines (mouse wheel)
-            let s = e.deltaMode === 0 ? 0.15 : 3;
-            offsetX = constrain(offsetX + e.deltaX * s, 0, caCanvasWidth - grid.cols);
-            offsetY = constrain(offsetY + e.deltaY * s, 0, caCanvasHeight - grid.rows);
+    }
+}
+
+function handleWheel(e) {
+    e.preventDefault();
+
+    if (e.ctrlKey) {
+        // Pinch-to-zoom on macOS trackpad, or Ctrl+scroll on Windows
+        zoomAccumulator += e.deltaY;
+        if (Math.abs(zoomAccumulator) >= 50) {
+            cycleFontSize(zoomAccumulator < 0 ? 1 : -1);
+            zoomAccumulator = 0;
         }
-    }, { passive: false });
+    } else {
+        // Pan. Scale factor depends on input device:
+        // deltaMode 0 = pixels (trackpad), deltaMode 1 = lines (mouse wheel click)
+        let scale = e.deltaMode === 0 ? 0.15 : 3;
+
+        // On macOS trackpad, both axes are meaningful.
+        // On Windows mouse wheel, deltaY dominates.
+        targetOffsetX += e.deltaX * scale;
+        targetOffsetY += e.deltaY * scale;
+        clampTarget();
+
+        // Kill any residual momentum so the wheel input feels direct
+        velocityX = 0;
+        velocityY = 0;
+    }
 }
 
 function draw() {
     if (frameCount === 1) {
         gridFramebuffer.resize(grid.cols, grid.rows);
-        offsetX = floor(random(0, caCanvasWidth - grid.cols));
-        offsetY = floor(random(0, caCanvasHeight - grid.rows));
+        targetOffsetX = floor(random(0, caCanvasWidth - grid.cols));
+        targetOffsetY = floor(random(0, caCanvasHeight - grid.rows));
+        offsetX = targetOffsetX;
+        offsetY = targetOffsetY;
     }
 
+    // ── Apply momentum ──
+    if (!isDragging && !isTouching) {
+        if (Math.abs(velocityX) > MIN_VELOCITY || Math.abs(velocityY) > MIN_VELOCITY) {
+            targetOffsetX -= velocityX;
+            targetOffsetY -= velocityY;
+            clampTarget();
+            velocityX *= FRICTION;
+            velocityY *= FRICTION;
+        } else {
+            velocityX = 0;
+            velocityY = 0;
+        }
+    }
+
+    // ── Smooth interpolation toward target ──
+    offsetX = lerp(offsetX, targetOffsetX, LERP_FACTOR);
+    offsetY = lerp(offsetY, targetOffsetY, LERP_FACTOR);
+
+    // ── Cellular automaton step ──
     if (!isPaused) {
-        // Cycle the framebuffers
         [previousFramebuffer, nextFramebuffer] = [nextFramebuffer, previousFramebuffer];
 
         nextFramebuffer.begin();
@@ -200,13 +366,15 @@ function draw() {
         nextFramebuffer.end();
     }
 
+    // ── Viewport extraction ──
     gridFramebuffer.begin();
     shader(gridShader);
     gridShader.setUniform('u_inputTexture', nextFramebuffer);
-    gridShader.setUniform('u_offset', [offsetX, offsetY]);
+    gridShader.setUniform('u_offset', [Math.round(offsetX), Math.round(offsetY)]);
     rect(0, 0, grid.cols, grid.rows);
     gridFramebuffer.end();
 
+    // ── Zoom to screen ──
     zoomFramebuffer.begin();
     shader(zoomShader);
     zoomShader.setUniform('u_resolution', [windowWidth, windowHeight]);
@@ -217,30 +385,33 @@ function draw() {
 
     image(zoomFramebuffer, -windowWidth / 2, -windowHeight / 2);
 
-    if (keyIsDown(87)) { // 'w' key
-        offsetY = max(0, offsetY - 1);
-    }
-
-    if (keyIsDown(83)) { // 's' key
-        offsetY = min(caCanvasHeight - (grid.rows), offsetY + 1);
-    }
-
-    if (keyIsDown(65)) { // 'a' key
-        offsetX = max(0, offsetX - 1);
-    }
-
-    if (keyIsDown(68)) { // 'd' key
-        offsetX = min(caCanvasWidth - (grid.cols), offsetX + 1);
-    }
+    // ── Keyboard continuous movement ──
+    let moveSpeed = IS_MOBILE ? 2 : 1;
+    if (keyIsDown(87)) targetOffsetY = max(0, targetOffsetY - moveSpeed); // W
+    if (keyIsDown(83)) targetOffsetY = min(caCanvasHeight - grid.rows, targetOffsetY + moveSpeed); // S
+    if (keyIsDown(65)) targetOffsetX = max(0, targetOffsetX - moveSpeed); // A
+    if (keyIsDown(68)) targetOffsetX = min(caCanvasWidth - grid.cols, targetOffsetX + moveSpeed); // D
 }
+
+// ─── Mouse interaction ─────────────────────────────────────────────
 
 function mousePressed() {
     isDragging = true;
     prevMouseX = mouseX;
     prevMouseY = mouseY;
+    dragDeltaX = 0;
+    dragDeltaY = 0;
+    // Kill momentum when user grabs the viewport
+    velocityX = 0;
+    velocityY = 0;
 }
 
 function mouseReleased() {
+    if (isDragging) {
+        // Launch momentum from the last drag delta
+        velocityX = dragDeltaX * VELOCITY_SCALE;
+        velocityY = dragDeltaY * VELOCITY_SCALE;
+    }
     isDragging = false;
 }
 
@@ -249,70 +420,125 @@ function mouseDragged() {
         let dx = mouseX - prevMouseX;
         let dy = mouseY - prevMouseY;
 
-        offsetX = constrain(offsetX - dx, 0, caCanvasWidth - grid.cols);
-        offsetY = constrain(offsetY - dy, 0, caCanvasHeight - grid.rows);
+        targetOffsetX -= dx;
+        targetOffsetY -= dy;
+        clampTarget();
+
+        // Track the most recent drag delta for momentum launch
+        dragDeltaX = dx;
+        dragDeltaY = dy;
 
         prevMouseX = mouseX;
         prevMouseY = mouseY;
     }
-    return false; // prevent browser scroll / text selection
+    return false;
 }
 
+// ─── Touch interaction ─────────────────────────────────────────────
+
 function touchStarted() {
-    let currentTime = millis();
-    if (currentTime - lastTapTime < doubleTapDelay) {
-        cycleFontSize();
-        lastTapTime = 0;
-    } else {
-        isTouching = true;
-        touchStartX = touches[0].x;
-        touchStartY = touches[0].y;
-        lastTapTime = currentTime;
+    if (touches.length === 2) {
+        // Start pinch gesture
+        isPinching = true;
+        isTouching = false;
+        initialPinchDist = pinchDistance(touches[0], touches[1]);
+        velocityX = 0;
+        velocityY = 0;
+        return false;
     }
+
+    // Single touch: check for double-tap
+    let currentTime = millis();
+    if (currentTime - lastTapTime < DOUBLE_TAP_DELAY) {
+        cycleFontSize(1);
+        lastTapTime = 0;
+        return false;
+    }
+
+    isTouching = true;
+    touchStartX = touches[0].x;
+    touchStartY = touches[0].y;
+    touchDeltaX = 0;
+    touchDeltaY = 0;
+    lastTapTime = currentTime;
+
+    // Kill momentum on new touch
+    velocityX = 0;
+    velocityY = 0;
+
+    return false;
 }
 
 function touchMoved() {
-    if (isTouching) {
+    if (isPinching && touches.length >= 2) {
+        let currentDist = pinchDistance(touches[0], touches[1]);
+        let diff = currentDist - initialPinchDist;
+        if (Math.abs(diff) > PINCH_THRESHOLD) {
+            cycleFontSize(diff > 0 ? 1 : -1);
+            initialPinchDist = currentDist;
+        }
+        return false;
+    }
+
+    if (isTouching && touches.length === 1) {
         let dx = touches[0].x - touchStartX;
         let dy = touches[0].y - touchStartY;
 
-        offsetX = constrain(offsetX - dx, 0, caCanvasWidth - grid.cols);
-        offsetY = constrain(offsetY - dy, 0, caCanvasHeight - grid.rows);
+        targetOffsetX -= dx;
+        targetOffsetY -= dy;
+        clampTarget();
+
+        // Store delta for momentum
+        touchDeltaX = dx;
+        touchDeltaY = dy;
 
         touchStartX = touches[0].x;
         touchStartY = touches[0].y;
     }
-    return false; // prevent page scroll during touch pan
+    return false;
 }
 
 function touchEnded() {
-    isTouching = false;
+    if (isPinching) {
+        // End pinch when fewer than 2 fingers remain
+        if (touches.length < 2) {
+            isPinching = false;
+        }
+        return false;
+    }
+
+    if (isTouching) {
+        // Launch momentum from final swipe delta
+        velocityX = touchDeltaX * VELOCITY_SCALE;
+        velocityY = touchDeltaY * VELOCITY_SCALE;
+        isTouching = false;
+    }
+    return false;
 }
 
+// ─── Keyboard interaction ──────────────────────────────────────────
+
 function keyPressed() {
-    if (key === "+") {
-        cycleFontSize(1);
-    }
+    if (key === "+") cycleFontSize(1);
+    if (key === "-") cycleFontSize(-1);
 
-    if (key === "-") {
-        cycleFontSize(-1);
-    }
-
-    if (key === "f" || key === "F") {
-        toggleFullscreen();
-    }
+    if (key === "f" || key === "F") toggleFullscreen();
 
     if (key === " ") {
         isPaused = !isPaused;
+        return false; // Prevent page scroll on space
     }
 
     if (key === "r") {
         frameCount = 1;
-
         seed = random(0, 100);
 
-        offsetX = floor(random(0, caCanvasWidth - grid.cols));
-        offsetY = floor(random(0, caCanvasHeight - grid.rows));
+        targetOffsetX = floor(random(0, caCanvasWidth - grid.cols));
+        targetOffsetY = floor(random(0, caCanvasHeight - grid.rows));
+        offsetX = targetOffsetX;
+        offsetY = targetOffsetY;
+        velocityX = 0;
+        velocityY = 0;
 
         previousFramebuffer.begin();
         clear();
@@ -333,7 +559,7 @@ function keyPressed() {
     }
 
     if (key === "k") {
-        if (kaleidoscopeEffect.enabled === false) {
+        if (!kaleidoscopeEffect.enabled) {
             kaleidoscopeEffect.enabled = true;
             kaleidoscopeEffect.segments = availableKaleidoscopeSegments[0];
         } else {
@@ -341,69 +567,47 @@ function keyPressed() {
             if (index === availableKaleidoscopeSegments.length - 1) {
                 kaleidoscopeEffect.enabled = false;
             } else {
-                index = (index + 1) % availableKaleidoscopeSegments.length;
-                kaleidoscopeEffect.segments = availableKaleidoscopeSegments[index];
+                kaleidoscopeEffect.segments = availableKaleidoscopeSegments[(index + 1) % availableKaleidoscopeSegments.length];
             }
         }
     }
 
     if (key === "i") {
         invertCharacters = !invertCharacters;
-
-        setAsciiOptions({
-            brightness: {
-                invertMode: invertCharacters,
-            },
-        });
+        setAsciiOptions({ brightness: { invertMode: invertCharacters } });
     }
 
     if (key === "b") {
-        let index = backgroundColors.indexOf(selectedBackgroundColor);
-        index = (index + 1) % backgroundColors.length;
+        let index = (backgroundColors.indexOf(selectedBackgroundColor) + 1) % backgroundColors.length;
         selectedBackgroundColor = backgroundColors[index];
-
-        setAsciiOptions({
-            brightness: {
-                backgroundColor: selectedBackgroundColor,
-            },
-        });
+        setAsciiOptions({ brightness: { backgroundColor: selectedBackgroundColor } });
     }
 
     if (key === "c") {
         characterColorMode = characterColorMode === 0 ? 1 : 0;
-
-        setAsciiOptions({
-            brightness: {
-                characterColorMode: characterColorMode,
-            },
-        });
+        setAsciiOptions({ brightness: { characterColorMode: characterColorMode } });
     }
 }
+
+// ─── Window resize ─────────────────────────────────────────────────
 
 function windowResized() {
     resizeCanvas(windowWidth, windowHeight);
-    gridFramebuffer.resize(grid.cols, grid.rows);
-}
-
-function toggleFullscreen() {
-    let el = document.documentElement;
-    if (!document.fullscreenElement && !document.webkitFullscreenElement) {
-        if (el.requestFullscreen) el.requestFullscreen();
-        else if (el.webkitRequestFullscreen) el.webkitRequestFullscreen();
-    } else {
-        if (document.exitFullscreen) document.exitFullscreen();
-        else if (document.webkitExitFullscreen) document.webkitExitFullscreen();
+    if (grid) {
+        gridFramebuffer.resize(grid.cols, grid.rows);
+        clampTarget();
     }
 }
+
+// ─── Font size cycling ─────────────────────────────────────────────
 
 function cycleFontSize(direction = 1) {
     let index = fontSizes.indexOf(selectedFontSize);
     index = (index + direction + fontSizes.length) % fontSizes.length;
     selectedFontSize = fontSizes[index];
-    setAsciiOptions({
-        common: {
-            fontSize: selectedFontSize,
-        },
-    });
-    gridFramebuffer.resize(grid.cols, grid.rows);
+    setAsciiOptions({ common: { fontSize: selectedFontSize } });
+    if (grid) {
+        gridFramebuffer.resize(grid.cols, grid.rows);
+        clampTarget();
+    }
 }
