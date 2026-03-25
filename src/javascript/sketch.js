@@ -91,10 +91,13 @@ let caShader;
 let gridShader;
 let zoomShader;
 
+let zoomAccumulator = 0;
+
 let seed;
 
 let previousFramebuffer;
 let nextFramebuffer;
+let rotationFramebuffer;
 let gridFramebuffer;
 let zoomFramebuffer;
 
@@ -155,6 +158,25 @@ function setup() {
 
     kaleidoscopeEffect = addAsciiEffect("pre", "kaleidoscope", { segments: 1, angle: 0 });
     kaleidoscopeEffect.enabled = false;
+
+    // Wheel: two-finger pan (macOS trackpad / Windows scroll) + pinch-to-zoom (macOS) / Ctrl+scroll (Windows)
+    let canvasEl = document.querySelector('canvas');
+    canvasEl.addEventListener('wheel', function (e) {
+        e.preventDefault();
+        if (e.ctrlKey) {
+            // Pinch-to-zoom (macOS trackpad pinch) or Ctrl+scroll (Windows / macOS)
+            zoomAccumulator += e.deltaY;
+            if (Math.abs(zoomAccumulator) >= 50) {
+                cycleFontSize(zoomAccumulator < 0 ? 1 : -1);
+                zoomAccumulator = 0;
+            }
+        } else {
+            // Pan — scale by delta mode: 0 = pixels (trackpad), 1 = lines (mouse wheel)
+            let s = e.deltaMode === 0 ? 0.15 : 3;
+            offsetX = constrain(offsetX + e.deltaX * s, 0, caCanvasWidth - grid.cols);
+            offsetY = constrain(offsetY + e.deltaY * s, 0, caCanvasHeight - grid.rows);
+        }
+    }, { passive: false });
 }
 
 function draw() {
@@ -227,12 +249,13 @@ function mouseDragged() {
         let dx = mouseX - prevMouseX;
         let dy = mouseY - prevMouseY;
 
-        offsetX = constrain(offsetX + dx, 0, caCanvasWidth - grid.cols);
-        offsetY = constrain(offsetY + dy, 0, caCanvasHeight - grid.rows);
+        offsetX = constrain(offsetX - dx, 0, caCanvasWidth - grid.cols);
+        offsetY = constrain(offsetY - dy, 0, caCanvasHeight - grid.rows);
 
         prevMouseX = mouseX;
         prevMouseY = mouseY;
     }
+    return false; // prevent browser scroll / text selection
 }
 
 function touchStarted() {
@@ -259,6 +282,7 @@ function touchMoved() {
         touchStartX = touches[0].x;
         touchStartY = touches[0].y;
     }
+    return false; // prevent page scroll during touch pan
 }
 
 function touchEnded() {
@@ -272,6 +296,10 @@ function keyPressed() {
 
     if (key === "-") {
         cycleFontSize(-1);
+    }
+
+    if (key === "f" || key === "F") {
+        toggleFullscreen();
     }
 
     if (key === " ") {
@@ -355,6 +383,17 @@ function keyPressed() {
 function windowResized() {
     resizeCanvas(windowWidth, windowHeight);
     gridFramebuffer.resize(grid.cols, grid.rows);
+}
+
+function toggleFullscreen() {
+    let el = document.documentElement;
+    if (!document.fullscreenElement && !document.webkitFullscreenElement) {
+        if (el.requestFullscreen) el.requestFullscreen();
+        else if (el.webkitRequestFullscreen) el.webkitRequestFullscreen();
+    } else {
+        if (document.exitFullscreen) document.exitFullscreen();
+        else if (document.webkitExitFullscreen) document.webkitExitFullscreen();
+    }
 }
 
 function cycleFontSize(direction = 1) {
